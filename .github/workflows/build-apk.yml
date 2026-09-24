@@ -14,9 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Unzip Android project
-        run: unzip -q Gen3SaveInspector-android-project.zip
-
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -29,11 +26,10 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build APK
-        working-directory: Gen3SaveInspector
         run: gradle :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Gen3SaveInspector-APK
-          path: Gen3SaveInspector/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
