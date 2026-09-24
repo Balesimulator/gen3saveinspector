@@ -909,7 +909,8 @@ public final class Gen3SaveParser {
 
         public String summary() {
             return location + "  " + species + "  " + nature.split("/")[0] +
-                   "\nIV  " + ivs.compact();
+                   "\nIV  " + ivs.compact()+
+                   "\nEV  " + evs.compact();
         }
 
         public String detail() {
