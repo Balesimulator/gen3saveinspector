@@ -13,6 +13,12 @@ import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 import android.text.style.TypefaceSpan;
+import android.graphics.Typeface;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
+import android.text.style.TypefaceSpan;
 
 public class MainActivity extends Activity {
     private static final int REQ_OPEN = 1001;
@@ -24,7 +30,7 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         buildUi();
     }
-    private CharSequence formatPokemonSummary(Gen3SaveParser.Pokemon p) {
+   private CharSequence formatPokemonSummary(Gen3SaveParser.Pokemon p) {
 
     SpannableStringBuilder s = new SpannableStringBuilder();
 
@@ -36,7 +42,6 @@ public class MainActivity extends Activity {
     s.append(p.species);
     int nameEnd = s.length();
 
-    // 名字加粗
     s.setSpan(
             new StyleSpan(Typeface.BOLD),
             nameStart,
@@ -47,35 +52,55 @@ public class MainActivity extends Activity {
     // 性格
     s.append("  ").append(p.nature).append("\n");
 
-    // 从这里开始是 IV / EV 数据
-    int statsStart = s.length();
+    // IV
+    appendStatsLine(s, "IV  ", p.ivs.compact());
 
-    s.append("IV  ")
-            .append(p.ivs.compact())
-            .append("\n");
+    s.append("\n");
 
-    s.append("EV  ")
-            .append(p.evs.compact());
-
-    int statsEnd = s.length();
-
-    // CMD / Courier 风格的等宽字体
-    s.setSpan(
-            new TypefaceSpan("monospace"),
-            statsStart,
-            statsEnd,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-    );
-
-    // 深蓝色
-    s.setSpan(
-            new ForegroundColorSpan(0xFF17365D),
-            statsStart,
-            statsEnd,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-    );
+    // EV
+    appendStatsLine(s, "EV  ", p.evs.compact());
 
     return s;
+}
+    private void appendStatsLine(
+        SpannableStringBuilder s,
+        String prefix,
+        String stats
+) {
+    // IV / EV 以及 HP、Att、SpA 等文字保持默认黑色
+    s.append(prefix);
+
+    int statsStart = s.length();
+    s.append(stats);
+
+    // 只寻找数值
+    java.util.regex.Pattern pattern =
+            java.util.regex.Pattern.compile("\\d+");
+
+    java.util.regex.Matcher matcher =
+            pattern.matcher(stats);
+
+    while (matcher.find()) {
+
+        int start = statsStart + matcher.start();
+        int end   = statsStart + matcher.end();
+
+        // 数字变成纯蓝 #0000FF
+        s.setSpan(
+                new ForegroundColorSpan(0xFF0000FF),
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        );
+
+        // 数字使用等宽字体，类似 CMD / Courier
+        s.setSpan(
+                new TypefaceSpan("monospace"),
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        );
+    }
 }
 
     private int dp(int v) {
@@ -169,7 +194,7 @@ public class MainActivity extends Activity {
     private void render(List<Gen3SaveParser.Pokemon> mons) {
         for(int idx=0; idx<mons.size(); idx++) {
             Gen3SaveParser.Pokemon p=mons.get(idx);
-            TextView row=label(String.format(Locale.US,"%03d  %s",idx+1,p.summary()),15);
+            TextView row=label(String.format(Locale.US,"%03d  %s",idx+1,p.summary()),13);
             row.setText(formatPokemonSummary(p));
             row.setBackgroundColor(0xFFFFFFFF);
             row.setPadding(dp(12),dp(10),dp(12),dp(10));
