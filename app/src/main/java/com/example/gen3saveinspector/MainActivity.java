@@ -7,6 +7,12 @@ import android.net.Uri;
 import android.widget.*;
 import java.io.*;
 import java.util.*;
+import android.graphics.Typeface;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
+import android.text.style.TypefaceSpan;
 
 public class MainActivity extends Activity {
     private static final int REQ_OPEN = 1001;
@@ -18,6 +24,59 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         buildUi();
     }
+    private CharSequence formatPokemonSummary(Gen3SaveParser.Pokemon p) {
+
+    SpannableStringBuilder s = new SpannableStringBuilder();
+
+    // 位置
+    s.append(p.location).append("  ");
+
+    // 宝可梦名字
+    int nameStart = s.length();
+    s.append(p.species);
+    int nameEnd = s.length();
+
+    // 名字加粗
+    s.setSpan(
+            new StyleSpan(Typeface.BOLD),
+            nameStart,
+            nameEnd,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+    );
+
+    // 性格
+    s.append("  ").append(p.nature).append("\n");
+
+    // 从这里开始是 IV / EV 数据
+    int statsStart = s.length();
+
+    s.append("IV  ")
+            .append(p.ivs.compact())
+            .append("\n");
+
+    s.append("EV  ")
+            .append(p.evs.compact());
+
+    int statsEnd = s.length();
+
+    // CMD / Courier 风格的等宽字体
+    s.setSpan(
+            new TypefaceSpan("monospace"),
+            statsStart,
+            statsEnd,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+    );
+
+    // 深蓝色
+    s.setSpan(
+            new ForegroundColorSpan(0xFF17365D),
+            statsStart,
+            statsEnd,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+    );
+
+    return s;
+}
 
     private int dp(int v) {
         return (int)(v * getResources().getDisplayMetrics().density + 0.5f);
@@ -111,6 +170,7 @@ public class MainActivity extends Activity {
         for(int idx=0; idx<mons.size(); idx++) {
             Gen3SaveParser.Pokemon p=mons.get(idx);
             TextView row=label(String.format(Locale.US,"%03d  %s",idx+1,p.summary()),15);
+            row.setText(formatPokemonSummary(p));
             row.setBackgroundColor(0xFFFFFFFF);
             row.setPadding(dp(12),dp(10),dp(12),dp(10));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
