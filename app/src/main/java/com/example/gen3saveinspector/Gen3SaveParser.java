@@ -1033,8 +1033,8 @@ public final class Gen3SaveParser {
         return sum;
     }
 
-    private static String genderLabel(int speciesId, long personality, boolean egg) {
-        if (egg || speciesId == 412) return "无性别";
+    private static String genderLabel(int speciesId, long personality) {
+        if (speciesId == 412) return "无性别";
         int ratio=Gen3SpeciesData.genderRatio(speciesId);
         if (ratio==0) return "♂";
         if (ratio==254) return "♀";
@@ -1177,7 +1177,7 @@ public final class Gen3SaveParser {
         p.ivs.spa = (int)((ivword >>> 20) & 31);
         p.ivs.spd = (int)((ivword >>> 25) & 31);
         p.egg = ((ivword >>> 30) & 1) != 0;
-        p.gender = genderLabel(speciesId,personality,p.egg);
+        p.gender = genderLabel(speciesId,personality);
 
         long experience=u32(growth,4);
         int calculatedLevel=levelFromExperience(speciesId,experience);
