@@ -910,6 +910,8 @@ public final class Gen3SaveParser {
         public Stats ivs;
         public Stats evs;
         public Stats stats;
+        int partyIndex = -1;
+        int pcIndex = -1;
 
         public String summary() {
             return location + "  " + species + "  " + nature.split("/")[0] +
@@ -950,6 +952,8 @@ public final class Gen3SaveParser {
     private static class SaveBlock {
         boolean valid;
         byte[][] sections = new byte[14][];
+        int[] sectionOffsets = new int[14];
+        int base;
         long saveIndex;
         List<String> errors = new ArrayList<>();
     }
@@ -967,6 +971,9 @@ public final class Gen3SaveParser {
     private static void putU32(byte[] b, int o, long v) {
         b[o]=(byte)v; b[o+1]=(byte)(v>>8); b[o+2]=(byte)(v>>16); b[o+3]=(byte)(v>>24);
     }
+    private static void putU16(byte[] b, int o, int v) {
+        b[o]=(byte)v; b[o+1]=(byte)(v>>8);
+    }
     private static byte[] slice(byte[] b, int s, int e) {
         return Arrays.copyOfRange(b, s, e);
     }
@@ -979,6 +986,8 @@ public final class Gen3SaveParser {
 
     private static SaveBlock inspectBlock(byte[] raw, int base) {
         SaveBlock out = new SaveBlock();
+        out.base = base;
+        Arrays.fill(out.sectionOffsets,-1);
         boolean[] seen = new boolean[14];
         Long commonIndex = null;
         boolean sameIndex = true;
@@ -1004,6 +1013,7 @@ public final class Gen3SaveParser {
 
             seen[id] = true;
             out.sections[id] = sec;
+            out.sectionOffsets[id] = off;
             count++;
             if (commonIndex == null) commonIndex = idx;
             else if (commonIndex.longValue() != idx) sameIndex = false;
@@ -1201,14 +1211,13 @@ public final class Gen3SaveParser {
     private static PartyCandidate tryParty(byte[] sec1, String key) {
         PartyCandidate c = new PartyCandidate();
         c.key = key;
-        int countOff, partyOff, countSize;
+        int countOff, partyOff;
         if ("emerald".equals(key)) {
-            c.label="R/S/E / Emerald"; countOff=0x234; partyOff=0x238; countSize=4;
+            c.label="R/S/E / Emerald"; countOff=0x234; partyOff=0x238;
         } else {
-            c.label="FireRed / LeafGreen"; countOff=0x034; partyOff=0x038; countSize=1;
+            c.label="FireRed / LeafGreen"; countOff=0x034; partyOff=0x038;
         }
-        long cnt = countSize==1 ? u8(sec1,countOff) : u32(sec1,countOff);
-        c.count=(int)cnt;
+        c.count=u8(sec1,countOff);
         if (c.count < 0 || c.count > 6) { c.score=-999; return c; }
         int score = c.count==0 ? 0 : 2;
         for (int i=0;i<c.count;i++) {
@@ -1258,6 +1267,7 @@ public final class Gen3SaveParser {
             Pokemon p=decodePokemon(slice(block.sections[1],partyOff+i*100,partyOff+(i+1)*100));
             if(p!=null) {
                 p.location="队伍 "+(i+1);
+                p.partyIndex=i;
                 r.pokemon.add(p);
             }
         }
@@ -1275,8 +1285,111 @@ public final class Gen3SaveParser {
             if(p==null || p.speciesId<1 || p.speciesId>412) continue;
             int box=index/30+1, slot=index%30+1;
             p.location=String.format(Locale.US,"箱子 %02d 格 %02d",box,slot);
+            p.pcIndex=index;
             r.pokemon.add(p);
         }
         return r;
+    }
+
+    private static void writeSection(byte[] output, SaveBlock block, int id, byte[] section)
+            throws Exception {
+        int offset=block.sectionOffsets[id];
+        if(offset<0 || offset+SECTION_SIZE>output.length)
+            throw new Exception("无法定位存档区块 "+id+"。");
+        putU16(section,0xFF6,sectionChecksum(section,SECTION_DATA_SIZES[id]));
+        System.arraycopy(section,0,output,offset,SECTION_SIZE);
+        block.sections[id]=section;
+    }
+
+    public static byte[] deletePokemon(byte[] fileBytes, Collection<Pokemon> selected)
+            throws Exception {
+        if(fileBytes==null || fileBytes.length<SAVE_SIZE)
+            throw new Exception("存档文件不完整，无法删除。");
+        if(selected==null || selected.isEmpty())
+            throw new Exception("尚未选择要删除的宝可梦。");
+
+        boolean[] deleteParty=new boolean[6];
+        boolean[] deletePc=new boolean[420];
+        int selectedCount=0;
+        for(Pokemon p:selected) {
+            if(p==null) continue;
+            if(p.partyIndex>=0 && p.partyIndex<deleteParty.length && !deleteParty[p.partyIndex]) {
+                deleteParty[p.partyIndex]=true;
+                selectedCount++;
+            } else if(p.pcIndex>=0 && p.pcIndex<deletePc.length && !deletePc[p.pcIndex]) {
+                deletePc[p.pcIndex]=true;
+                selectedCount++;
+            }
+        }
+        if(selectedCount==0) throw new Exception("所选项目不属于当前存档。");
+
+        byte[] raw=Arrays.copyOf(fileBytes,SAVE_SIZE);
+        SaveBlock block=chooseLatest(raw)[0];
+        PartyCandidate party=detectParty(block.sections[1]);
+
+        int partyDeleteCount=0;
+        for(int i=0;i<party.count;i++) if(deleteParty[i]) partyDeleteCount++;
+        if(partyDeleteCount>0) {
+            int partyOff="emerald".equals(party.key) ? 0x238 : 0x038;
+            boolean hasUsablePokemon=false;
+            for(int i=0;i<party.count;i++) {
+                if(deleteParty[i]) continue;
+                int recordOff=partyOff+i*100;
+                Pokemon pokemon=decodePokemon(slice(block.sections[1],recordOff,recordOff+100));
+                if(pokemon!=null && pokemon.speciesId!=0 && !pokemon.egg &&
+                        u16(block.sections[1],recordOff+0x56)>0) {
+                    hasUsablePokemon=true;
+                    break;
+                }
+            }
+            if(!hasUsablePokemon)
+                throw new Exception("队伍中必须至少保留一只未倒下且非蛋的宝可梦；箱子中的宝可梦仍可正常删除。");
+        }
+
+        byte[] output=Arrays.copyOf(fileBytes,fileBytes.length);
+        if(partyDeleteCount>0) {
+            int countOff="emerald".equals(party.key) ? 0x234 : 0x034;
+            int partyOff="emerald".equals(party.key) ? 0x238 : 0x038;
+            byte[] section=Arrays.copyOf(block.sections[1],SECTION_SIZE);
+            int writeIndex=0;
+            for(int readIndex=0;readIndex<party.count;readIndex++) {
+                if(deleteParty[readIndex]) continue;
+                if(writeIndex!=readIndex)
+                    System.arraycopy(section,partyOff+readIndex*100,
+                            section,partyOff+writeIndex*100,100);
+                writeIndex++;
+            }
+            Arrays.fill(section,partyOff+writeIndex*100,partyOff+6*100,(byte)0);
+            for(int i=writeIndex;i<6;i++) section[partyOff+i*100+0x55]=(byte)0xFF;
+            section[countOff]=(byte)writeIndex;
+            writeSection(output,block,1,section);
+        }
+
+        boolean hasPcDeletion=false;
+        for(boolean value:deletePc) if(value) { hasPcDeletion=true; break; }
+        if(hasPcDeletion) {
+            byte[] pc=new byte[33744];
+            int pos=0;
+            for(int id=5;id<=13;id++) {
+                int n=SECTION_DATA_SIZES[id];
+                System.arraycopy(block.sections[id],0,pc,pos,n);
+                pos+=n;
+            }
+            for(int index=0;index<deletePc.length;index++) {
+                if(deletePc[index]) Arrays.fill(pc,4+index*80,4+(index+1)*80,(byte)0);
+            }
+            pos=0;
+            for(int id=5;id<=13;id++) {
+                int n=SECTION_DATA_SIZES[id];
+                byte[] section=Arrays.copyOf(block.sections[id],SECTION_SIZE);
+                System.arraycopy(pc,pos,section,0,n);
+                pos+=n;
+                writeSection(output,block,id,section);
+            }
+        }
+
+        SaveBlock verified=inspectBlock(Arrays.copyOf(output,SAVE_SIZE),block.base);
+        if(!verified.valid) throw new Exception("修改后的存档未通过区块校验，原文件不会被写入。");
+        return output;
     }
 }

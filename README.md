@@ -1,6 +1,6 @@
 # Gen III Save Inspector (Android)
 
-A tiny read-only Android app based on the previous `gen3_iv_ev_reader.py`.
+An Android app based on the previous `gen3_iv_ev_reader.py`.
 
 ## Features
 - Open `.sav` / `.srm` with Android's system file picker.
@@ -10,7 +10,9 @@ A tiny read-only Android app based on the previous `gen3_iv_ev_reader.py`.
 - Show species, gender, level, Nature (Chinese/Japanese/English), IVs, EVs,
   calculated stats, PID and checksum status.
 - Standard 128 KiB saves and saves with trailing emulator RTC metadata are supported.
-- Read-only: the app never writes back to the save.
+- Long-press a Pokémon or Egg to select one or more entries for deletion.
+- Before a deletion is written back, the app creates and verifies a full backup
+  with `_backup` inserted before the original file extension.
 
 ## Build
 Open this folder in Android Studio and build `app`, or push to GitHub and run the included **Build APK** workflow.
