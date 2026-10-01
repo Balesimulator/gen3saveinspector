@@ -1,7 +1,6 @@
 package com.example.gen3saveinspector;
 
 import java.util.*;
-import java.nio.charset.StandardCharsets;
 
 public final class Gen3SaveParser {
     private Gen3SaveParser() {}
@@ -9,6 +8,8 @@ public final class Gen3SaveParser {
     public static final int SAVE_SIZE = 0x20000;
     private static final int SECTION_SIZE = 0x1000;
     private static final long SIGNATURE = 0x08012025L;
+    private static final int SPECIES_SHEDINJA = 303;
+    private static final int SPECIES_DEOXYS = 410;
 
     private static final int[] SECTION_DATA_SIZES = {
         3884,3968,3968,3968,3848,3968,3968,3968,3968,3968,3968,3968,3968,2000
@@ -904,8 +905,11 @@ public final class Gen3SaveParser {
         public boolean egg;
         public boolean checksumOk;
         public long personality;
+        public String gender;
+        public int level;
         public Stats ivs;
         public Stats evs;
+        public Stats stats;
 
         public String summary() {
             return location + "  " + species + "  " + nature.split("/")[0] +
@@ -915,11 +919,16 @@ public final class Gen3SaveParser {
 
         public String detail() {
             StringBuilder sb = new StringBuilder();
-            sb.append(species).append("  (内部ID ").append(speciesId).append(")\n");
+            sb.append(species).append("  ").append(gender).append("  Lv.").append(level)
+                    .append("  (内部ID ").append(speciesId).append(")\n");
             sb.append(location).append("\n\n");
             sb.append("性格：").append(nature).append("\n\n");
             sb.append("IV：").append(ivs.compact()).append("\n");
-            sb.append("EV：").append(evs.compact()).append("  合计 ").append(evs.total()).append("\n\n");
+            sb.append("EV：").append(evs.compact()).append("  合计 ").append(evs.total()).append("\n");
+            if (stats != null)
+                sb.append("当前能力值：").append(stats.compact()).append("\n\n");
+            else
+                sb.append("当前能力值：无法可靠计算（箱中代欧奇希斯的形态依游戏版本而异）\n\n");
             sb.append(String.format(Locale.US, "Personality：0x%08X", personality));
             if (egg) sb.append("\n蛋");
             if (!checksumOk) sb.append("\n⚠ 宝可梦校验和异常");
@@ -1024,6 +1033,98 @@ public final class Gen3SaveParser {
         return sum;
     }
 
+    private static String genderLabel(int speciesId, long personality, boolean egg) {
+        if (egg || speciesId == 412) return "无性别";
+        int ratio=Gen3SpeciesData.genderRatio(speciesId);
+        if (ratio==0) return "♂";
+        if (ratio==254) return "♀";
+        if (ratio==255) return "无性别";
+        return (personality & 0xFFL) < ratio ? "♀" : "♂";
+    }
+
+    private static long experienceAtLevel(int growthRate, int level) {
+        if (level <= 0) return 0;
+        if (level == 1) return 1;
+        long square=(long)level*level;
+        long cube=square*level;
+        switch(growthRate) {
+            case 1: // Erratic
+                if(level<=50) return (100L-level)*cube/50L;
+                if(level<=68) return (150L-level)*cube/100L;
+                if(level<=98) return ((1911L-10L*level)/3L)*cube/500L;
+                return (160L-level)*cube/100L;
+            case 2: // Fluctuating
+                if(level<=15) return (((level+1L)/3L)+24L)*cube/50L;
+                if(level<=36) return (level+14L)*cube/50L;
+                return ((level/2L)+32L)*cube/50L;
+            case 3: // Medium Slow
+                return 6L*cube/5L-15L*square+100L*level-140L;
+            case 4: // Fast
+                return 4L*cube/5L;
+            case 5: // Slow
+                return 5L*cube/4L;
+            case 0: // Medium Fast
+            default:
+                return cube;
+        }
+    }
+
+    private static int levelFromExperience(int speciesId, long experience) {
+        if(!Gen3SpeciesData.hasBaseStats(speciesId)) return 0;
+        int growthRate=Gen3SpeciesData.growthRate(speciesId);
+        int level=1;
+        while(level<=100 && experienceAtLevel(growthRate,level)<=experience) level++;
+        return level-1;
+    }
+
+    private static int applyNature(int value, int nature, int natureStatIndex) {
+        int increased=nature/5;
+        int decreased=nature%5;
+        if(increased==decreased) return value;
+        if(natureStatIndex==increased) return value*110/100;
+        if(natureStatIndex==decreased) return value*90/100;
+        return value;
+    }
+
+    private static int calculateStat(int speciesId, int stat, int iv, int ev,
+                                     int level, int nature, int natureStatIndex) {
+        int base=Gen3SpeciesData.baseStat(speciesId,stat);
+        int value=((2*base+iv+ev/4)*level)/100+5;
+        return applyNature(value,nature,natureStatIndex);
+    }
+
+    private static Stats calculateBoxStats(Pokemon p) {
+        // Deoxys has a different form in R/S, FireRed, LeafGreen, and Emerald.
+        // The current parser can identify the layout family but not the exact game.
+        if(!Gen3SpeciesData.hasBaseStats(p.speciesId) || p.speciesId==SPECIES_DEOXYS || p.level<=0)
+            return null;
+
+        int nature=(int)(p.personality%25);
+        Stats stats=new Stats();
+        if(p.speciesId==SPECIES_SHEDINJA) stats.hp=1;
+        else {
+            int baseHp=Gen3SpeciesData.baseStat(p.speciesId,Gen3SpeciesData.STAT_HP);
+            stats.hp=((2*baseHp+p.ivs.hp+p.evs.hp/4)*p.level)/100+p.level+10;
+        }
+        stats.atk=calculateStat(p.speciesId,Gen3SpeciesData.STAT_ATK,p.ivs.atk,p.evs.atk,p.level,nature,0);
+        stats.def=calculateStat(p.speciesId,Gen3SpeciesData.STAT_DEF,p.ivs.def,p.evs.def,p.level,nature,1);
+        stats.spe=calculateStat(p.speciesId,Gen3SpeciesData.STAT_SPE,p.ivs.spe,p.evs.spe,p.level,nature,2);
+        stats.spa=calculateStat(p.speciesId,Gen3SpeciesData.STAT_SPA,p.ivs.spa,p.evs.spa,p.level,nature,3);
+        stats.spd=calculateStat(p.speciesId,Gen3SpeciesData.STAT_SPD,p.ivs.spd,p.evs.spd,p.level,nature,4);
+        return stats;
+    }
+
+    private static Stats readPartyStats(byte[] record) {
+        Stats stats=new Stats();
+        stats.hp=u16(record,0x58);
+        stats.atk=u16(record,0x5A);
+        stats.def=u16(record,0x5C);
+        stats.spe=u16(record,0x5E);
+        stats.spa=u16(record,0x60);
+        stats.spd=u16(record,0x62);
+        return stats;
+    }
+
     private static Pokemon decodePokemon(byte[] record) {
         if (record.length < 80) return null;
         boolean allZero=true;
@@ -1076,6 +1177,18 @@ public final class Gen3SaveParser {
         p.ivs.spa = (int)((ivword >>> 20) & 31);
         p.ivs.spd = (int)((ivword >>> 25) & 31);
         p.egg = ((ivword >>> 30) & 1) != 0;
+        p.gender = genderLabel(speciesId,personality,p.egg);
+
+        long experience=u32(growth,4);
+        int calculatedLevel=levelFromExperience(speciesId,experience);
+        if(record.length>=100) {
+            int storedLevel=u8(record,0x54);
+            p.level=(storedLevel>=1 && storedLevel<=100) ? storedLevel : calculatedLevel;
+            p.stats=readPartyStats(record);
+        } else {
+            p.level=calculatedLevel;
+            p.stats=calculateBoxStats(p);
+        }
         return p;
     }
 

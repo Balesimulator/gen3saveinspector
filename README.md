@@ -7,7 +7,8 @@ A tiny read-only Android app based on the previous `gen3_iv_ev_reader.py`.
 - Parse the newest valid Gen III save block.
 - Auto-detect R/S/E vs FireRed/LeafGreen party layout.
 - Read party and all 14 PC boxes.
-- Show species, Nature (Chinese/Japanese/English), IVs, EVs, PID and checksum status.
+- Show species, gender, level, Nature (Chinese/Japanese/English), IVs, EVs,
+  calculated stats, PID and checksum status.
 - Standard 128 KiB saves and saves with trailing emulator RTC metadata are supported.
 - Read-only: the app never writes back to the save.
 
